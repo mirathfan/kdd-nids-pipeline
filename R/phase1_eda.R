@@ -78,16 +78,47 @@ col_types <- cols(
 )
 
 # --- 2. Download & load data -------------------------------------------------
-data_url  <- "http://kdd.ics.uci.edu/databases/kddcup99/kddcup.data_10_percent.gz"
 local_gz  <- "data/kddcup_10pct.gz"
 local_csv <- "data/kddcup_10pct.csv"
 
 dir.create("data",    showWarnings = FALSE)
 dir.create("outputs", showWarnings = FALSE)
 
+# Try multiple mirrors — UCI old server often returns 403
+mirrors <- c(
+  "https://web.archive.org/web/2024/http://kdd.ics.uci.edu/databases/kddcup99/kddcup.data_10_percent.gz",
+  "http://kdd.ics.uci.edu/databases/kddcup99/kddcup.data_10_percent.gz"
+)
+
 if (!file.exists(local_gz)) {
   message("Downloading KDD Cup 10% subset (~2 MB compressed)...")
-  download.file(data_url, destfile = local_gz, mode = "wb")
+  downloaded <- FALSE
+  for (url in mirrors) {
+    result <- tryCatch({
+      download.file(url, destfile = local_gz, mode = "wb", quiet = FALSE)
+      TRUE
+    }, error   = function(e) FALSE,
+       warning = function(w) FALSE)
+    if (result && file.exists(local_gz) && file.size(local_gz) > 10000) {
+      message("Downloaded successfully.")
+      downloaded <- TRUE
+      break
+    } else {
+      message("Mirror failed, trying next...")
+      suppressWarnings(file.remove(local_gz))
+    }
+  }
+  if (!downloaded) {
+    stop(paste0(
+      "\nAll mirrors failed. Please download manually:\n",
+      "  1. Go to: https://archive.ics.uci.edu/dataset/130/kdd+cup+1999+data\n",
+      "  2. Download and extract the zip\n",
+      "  3. Copy 'kddcup.data_10_percent.gz' into your data/ folder\n",
+      "  4. Re-run this script — it will skip the download step\n"
+    ))
+  }
+} else {
+  message("Found cached gz file, skipping download.")
 }
 
 if (!file.exists(local_csv)) {
