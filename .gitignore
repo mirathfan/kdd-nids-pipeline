@@ -47,3 +47,26 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+
+# Raw data — never commit large files to GitHub
+data/
+*.gz
+*.zip
+*.csv
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+*.egg-info/
+.env
+venv/
+.venv/
+
+# Output plots (optional — remove these 2 lines if you WANT plots on GitHub)
+outputs/*.png
+outputs/*.pdf
+
+# OS clutter
+.DS_Store
+Thumbs.db
