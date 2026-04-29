@@ -70,3 +70,6 @@ outputs/*.pdf
 # OS clutter
 .DS_Store
 Thumbs.db
+# Keep output plots for GitHub visibility
+
+# Keep output plots for GitHub visibility

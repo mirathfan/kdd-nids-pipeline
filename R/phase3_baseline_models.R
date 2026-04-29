@@ -138,24 +138,35 @@ rpart.plot(dt_pruned, type = 4, extra = 104,
 dev.off()
 message("Saved: outputs/p8b_dt_tree.png")
 
+
 # =============================================================================
 # MODEL 2: Random Forest
 # =============================================================================
 message("\n===== MODEL 2: Random Forest =====")
-message("Training Random Forest (500 trees, mtry = sqrt(p))...")
-message("This may take 2-4 minutes...")
+
+# Use a stratified 50% sample to stay within 16GB RAM on Mac
+# 204K rows is more than sufficient for a strong RF — OOB converges by tree 200
+set.seed(42)
+train_rf_idx <- createDataPartition(train$label, p = 0.50, list = FALSE)
+train_rf     <- train[train_rf_idx, ]
+message(sprintf("Training on stratified 50%% sample: %s rows (memory-safe for 16GB RAM)",
+                format(nrow(train_rf), big.mark=",")))
+message("Training Random Forest (300 trees, mtry = sqrt(p))...")
+message("This may take 2-3 minutes...")
 
 set.seed(42)
 rf_model <- randomForest(
   label ~ .,
-  data      = train,
-  ntree     = 500,
-  mtry      = floor(sqrt(ncol(train) - 1)),  # sqrt(20) ~ 4
+  data      = train_rf,
+  ntree     = 300,
+  mtry      = floor(sqrt(ncol(train_rf) - 1)),  # sqrt(20) ~ 4
   importance= TRUE,
   do.trace  = 100   # print OOB error every 100 trees
 )
 
 message("\nRandom Forest training complete.")
+print(rf_model)
+
 print(rf_model)
 
 # Predict on test
