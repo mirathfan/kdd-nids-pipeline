@@ -1,16 +1,3 @@
-# =============================================================================
-# KDD Cup 1999 - Network Intrusion Detection
-# Phase 4: Advanced Models — XGBoost + LightGBM + SHAP
-# Secondary language: Python
-# Input : data/train_balanced.csv   (from Phase 2)
-#         data/test.csv             (from Phase 2)
-# Outputs: outputs/p11_xgb_confusion.png
-#          outputs/p12_lgbm_confusion.png
-#          outputs/p13_shap_summary.png
-#          outputs/p14_shap_beeswarm.png
-#          data/phase4_results.json
-# =============================================================================
-
 import json
 import warnings
 warnings.filterwarnings("ignore")
@@ -26,13 +13,11 @@ from sklearn.metrics import (
     classification_report, confusion_matrix,
     f1_score, accuracy_score, roc_auc_score
 )
-from sklearn.preprocessing import LabelEncoder
 
 import xgboost as xgb
 import lightgbm as lgb
 import shap
 
-# ── directories ──────────────────────────────────────────────────────────────
 Path("outputs").mkdir(exist_ok=True)
 Path("data").mkdir(exist_ok=True)
 
@@ -42,7 +27,6 @@ PALETTE   = {
     "Probe":  "#EF9F27", "R2L": "#1D9E75", "U2R": "#7F77DD"
 }
 
-# ── plot style ────────────────────────────────────────────────────────────────
 plt.rcParams.update({
     "font.family":    "sans-serif",
     "axes.spines.top":   False,
@@ -52,47 +36,43 @@ plt.rcParams.update({
     "figure.dpi":        150,
 })
 
-# =============================================================================
-# 1. Load data
-# =============================================================================
 print("Loading data...")
 train = pd.read_csv("data/train_balanced.csv")
 test  = pd.read_csv("data/test.csv")
 
-le = LabelEncoder()
-le.fit(CLASSES)
+class_to_id = {class_name: idx for idx, class_name in enumerate(CLASSES)}
+unknown_labels = (set(train["label"]) | set(test["label"])) - set(CLASSES)
+if unknown_labels:
+    raise ValueError(f"Unknown labels found: {sorted(unknown_labels)}")
 
 X_train = train.drop("label", axis=1)
-y_train = le.transform(train["label"])
+y_train = train["label"].map(class_to_id).astype(int).to_numpy()
 
 X_test  = test.drop("label", axis=1)
-y_test  = le.transform(test["label"])
+y_test  = test["label"].map(class_to_id).astype(int).to_numpy()
 
 print(f"Train : {X_train.shape[0]:,} rows x {X_train.shape[1]} features")
 print(f"Test  : {X_test.shape[0]:,}  rows x {X_test.shape[1]} features")
-print(f"Classes: {le.classes_}")
+print(f"Classes: {CLASSES}")
 
-# =============================================================================
-# 2. Helper functions
-# =============================================================================
 def evaluate(y_true, y_pred, model_name):
     acc      = accuracy_score(y_true, y_pred)
     macro_f1 = f1_score(y_true, y_pred, average="macro", zero_division=0)
     report   = classification_report(
         y_true, y_pred,
-        target_names=CLASSES, output_dict=True, zero_division=0
+        labels=range(len(CLASSES)), target_names=CLASSES,
+        output_dict=True, zero_division=0
     )
     print(f"\n{'='*55}")
     print(f"  {model_name}")
     print(f"{'='*55}")
     print(f"  Accuracy : {acc:.4f}")
     print(f"  Macro F1 : {macro_f1:.4f}")
-    print(f"\n{classification_report(y_true, y_pred, target_names=CLASSES, zero_division=0)}")
+    print(f"\n{classification_report(y_true, y_pred, labels=range(len(CLASSES)), target_names=CLASSES, zero_division=0)}")
     return {"accuracy": acc, "macro_f1": macro_f1, "report": report}
 
-
 def plot_confusion(y_true, y_pred, title, fname):
-    cm = confusion_matrix(y_true, y_pred)
+    cm = confusion_matrix(y_true, y_pred, labels=range(len(CLASSES)))
     acc = accuracy_score(y_true, y_pred)
 
     fig, ax = plt.subplots(figsize=(7, 5.5))
@@ -111,13 +91,8 @@ def plot_confusion(y_true, y_pred, title, fname):
     plt.close()
     print(f"Saved: outputs/{fname}")
 
-
-# =============================================================================
-# 3. XGBoost
-# =============================================================================
 print("\n===== MODEL 3: XGBoost =====")
 
-# Class weights — inverse frequency to handle residual imbalance
 class_counts  = np.bincount(y_train)
 class_weights = len(y_train) / (len(CLASSES) * class_counts)
 sample_weight = np.array([class_weights[y] for y in y_train])
@@ -132,8 +107,8 @@ xgb_model = xgb.XGBClassifier(
     colsample_bytree = 0.8,
     min_child_weight = 5,
     gamma            = 0.1,
-    reg_alpha        = 0.1,   # L1 regularisation
-    reg_lambda       = 1.0,   # L2 regularisation
+    reg_alpha        = 0.1,
+    reg_lambda       = 1.0,
     use_label_encoder= False,
     eval_metric      = "mlogloss",
     random_state     = 42,
@@ -153,12 +128,8 @@ xgb_preds   = xgb_model.predict(X_test)
 xgb_metrics = evaluate(y_test, xgb_preds, "XGBoost")
 plot_confusion(y_test, xgb_preds, "XGBoost — confusion matrix", "p11_xgb_confusion.png")
 
-# =============================================================================
-# 4. LightGBM
-# =============================================================================
 print("\n===== MODEL 4: LightGBM =====")
 
-# Class weights dict for LightGBM
 lgb_class_weight = {i: class_weights[i] for i in range(len(CLASSES))}
 
 lgb_model = lgb.LGBMClassifier(
@@ -176,7 +147,7 @@ lgb_model = lgb.LGBMClassifier(
     class_weight     = lgb_class_weight,
     random_state     = 42,
     n_jobs           = -1,
-    verbosity        = -1    # suppress LightGBM output
+    verbosity        = -1
 )
 
 print("Training LightGBM (400 trees)...")
@@ -190,21 +161,16 @@ lgb_preds   = lgb_model.predict(X_test)
 lgb_metrics = evaluate(y_test, lgb_preds, "LightGBM")
 plot_confusion(y_test, lgb_preds, "LightGBM — confusion matrix", "p12_lgbm_confusion.png")
 
-# =============================================================================
-# 5. SHAP explainability (on XGBoost — best interpretable model)
-# =============================================================================
 print("\n===== SHAP EXPLAINABILITY (XGBoost) =====")
 print("Computing SHAP values on 2,000 test samples...")
 
-# Use a sample for speed — SHAP is O(n * trees)
 shap_sample_idx = np.random.RandomState(42).choice(len(X_test), size=2000, replace=False)
 X_shap = X_test.iloc[shap_sample_idx]
 
 explainer   = shap.TreeExplainer(xgb_model)
-shap_values = explainer.shap_values(X_shap)   # shape: (n_samples, n_features, n_classes)
+shap_values = explainer.shap_values(X_shap)
 
-# ── Plot 1: SHAP summary — mean absolute impact per feature (all classes) ──
-mean_shap = np.abs(shap_values).mean(axis=(0, 2))   # avg over samples and classes
+mean_shap = np.abs(shap_values).mean(axis=(0, 2))
 shap_importance = pd.DataFrame({
     "feature":   X_test.columns,
     "mean_shap": mean_shap
@@ -224,9 +190,8 @@ plt.savefig("outputs/p13_shap_summary.png", dpi=150, bbox_inches="tight")
 plt.close()
 print("Saved: outputs/p13_shap_summary.png")
 
-# ── Plot 2: SHAP beeswarm for DoS class (class index 1) ──────────────────────
 print("Generating SHAP beeswarm plot for DoS class...")
-shap_dos = shap_values[:, :, 1]   # DoS is index 1
+shap_dos = shap_values[:, :, 1]
 
 fig, ax = plt.subplots(figsize=(9, 7))
 shap.summary_plot(
@@ -244,15 +209,18 @@ plt.savefig("outputs/p14_shap_beeswarm.png", dpi=150, bbox_inches="tight")
 plt.close()
 print("Saved: outputs/p14_shap_beeswarm.png")
 
-# =============================================================================
-# 6. Final comparison — all 4 models
-# =============================================================================
 print("\n===== FINAL MODEL COMPARISON =====")
 
-# Load Phase 3 baseline metrics (hardcoded from R output)
+baseline_df = pd.read_csv("data/baseline_results.csv")
+
+# CSV keeps Phase 3 metrics compatible between R and Python.
 baseline = {
-    "Decision Tree": {"accuracy": 0.9988, "macro_f1": 0.8210},
-    "Random Forest": {"accuracy": 0.9994, "macro_f1": 0.8310},
+    row["Model"]: {
+        "accuracy": float(row["Accuracy"]),
+        "macro_f1": float(row["Macro F1"]),
+    }
+    for _, row in baseline_df.iterrows()
+    if row["Model"] in {"Decision Tree", "Random Forest"}
 }
 
 results = {
@@ -267,7 +235,6 @@ print("-" * 42)
 for name, m in results.items():
     print(f"{name:<20} {m['accuracy']:>10.4f} {m['macro_f1']:>10.4f}")
 
-# ── Comparison bar chart ──────────────────────────────────────────────────────
 model_names = list(results.keys())
 accuracies  = [results[m]["accuracy"]  for m in model_names]
 macro_f1s   = [results[m]["macro_f1"]  for m in model_names]
@@ -293,7 +260,7 @@ ax.set_xticklabels(model_names, fontsize=11)
 ax.set_ylim(0.75, 1.02)
 ax.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.2f"))
 ax.set_ylabel("Score")
-ax.set_title("All models — Accuracy vs Macro F1\nEvaluated on held-out test set (98,802 rows)",
+ax.set_title(f"All models — Accuracy vs Macro F1\nEvaluated on held-out test set ({len(X_test):,} rows)",
              pad=12)
 ax.legend(loc="lower right")
 plt.tight_layout()
@@ -301,17 +268,13 @@ plt.savefig("outputs/p15_all_models_comparison.png", dpi=150, bbox_inches="tight
 plt.close()
 print("Saved: outputs/p15_all_models_comparison.png")
 
-# =============================================================================
-# 7. Save results to JSON for README
-# =============================================================================
-# Per-class F1 for XGBoost and LightGBM
 xgb_report = xgb_metrics["report"]
 lgb_report = lgb_metrics["report"]
 
 output = {
     "models": {
-        "Decision Tree": {"accuracy": 0.9988, "macro_f1": 0.8210},
-        "Random Forest": {"accuracy": 0.9994, "macro_f1": 0.8310},
+        "Decision Tree": baseline["Decision Tree"],
+        "Random Forest": baseline["Random Forest"],
         "XGBoost":  {
             "accuracy":  round(xgb_metrics["accuracy"],  4),
             "macro_f1":  round(xgb_metrics["macro_f1"],  4),

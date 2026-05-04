@@ -1,21 +1,12 @@
-# =============================================================================
-# KDD Cup 1999 - Network Intrusion Detection
-# Phase 1: Data Ingestion & Exploratory Data Analysis
-# Primary language: R
-# =============================================================================
-
-# --- 0. Install & load packages ----------------------------------------------
 if (!requireNamespace("pacman", quietly = TRUE)) install.packages("pacman")
 pacman::p_load(
-  tidyverse,   # dplyr, ggplot2, readr, tidyr
-  ggcorrplot,  # correlation heatmap
-  scales,      # axis formatting
-  gridExtra,   # multi-plot layout
-  knitr        # summary tables
+  tidyverse,
+  ggcorrplot,
+  scales,
+  gridExtra,
+  knitr
 )
 
-# --- 1. Column definitions ---------------------------------------------------
-# 41 features from kddcup.names + label column
 col_names <- c(
   "duration", "protocol_type", "service", "flag",
   "src_bytes", "dst_bytes", "land", "wrong_fragment", "urgent",
@@ -77,14 +68,12 @@ col_types <- cols(
   label                       = col_character()
 )
 
-# --- 2. Download & load data -------------------------------------------------
 local_gz  <- "data/kddcup_10pct.gz"
 local_csv <- "data/kddcup_10pct.csv"
 
 dir.create("data",    showWarnings = FALSE)
 dir.create("outputs", showWarnings = FALSE)
 
-# Try multiple mirrors — UCI old server often returns 403
 mirrors <- c(
   "https://web.archive.org/web/2024/http://kdd.ics.uci.edu/databases/kddcup99/kddcup.data_10_percent.gz",
   "http://kdd.ics.uci.edu/databases/kddcup99/kddcup.data_10_percent.gz"
@@ -139,8 +128,6 @@ if (!file.exists(local_csv)) {
 message(sprintf("Dataset loaded: %s rows x %s columns",
                 nrow(raw), ncol(raw)))
 
-# --- 3. Map granular labels -> 5 attack classes ------------------------------
-# Source: kddcup.names training_attack_types
 dos_attacks   <- c("back","land","neptune","pod","smurf","teardrop",
                    "apache2","udpstorm","processtable","worm")
 probe_attacks <- c("ipsweep","nmap","portsweep","satan","mscan","saint")
@@ -150,7 +137,6 @@ r2l_attacks   <- c("ftp_write","guess_passwd","imap","multihop","phf",
 u2r_attacks   <- c("buffer_overflow","loadmodule","perl","rootkit",
                    "ps","sqlattack","xterm")
 
-# Strip trailing period from labels (KDD data quirk)
 df <- raw %>%
   mutate(
     label_raw = str_remove(label, "\\.$"),
@@ -166,7 +152,6 @@ df <- raw %>%
                           levels = c("Normal","DoS","Probe","R2L","U2R"))
   )
 
-# Sanity check - flag any unmapped labels
 unknown_labels <- df %>%
   filter(attack_class == "Unknown") %>%
   distinct(label_raw)
@@ -178,7 +163,6 @@ if (nrow(unknown_labels) > 0) {
   message("All labels successfully mapped to 5 attack classes.")
 }
 
-# --- 4. Basic dataset overview -----------------------------------------------
 message("\n===== DATASET OVERVIEW =====")
 message(sprintf("Total records : %s", format(nrow(df), big.mark=",")))
 message(sprintf("Features      : %d (41 + label columns)", ncol(df) - 2))
@@ -194,7 +178,6 @@ class_summary <- df %>%
 message("\nClass distribution:")
 print(class_summary)
 
-# --- 5. EDA Plot 1: Class distribution (log scale) ---------------------------
 p1 <- ggplot(class_summary, aes(x = reorder(attack_class, -n),
                                  y = n, fill = attack_class)) +
   geom_col(width = 0.65, show.legend = FALSE) +
@@ -221,7 +204,6 @@ p1 <- ggplot(class_summary, aes(x = reorder(attack_class, -n),
     panel.grid.major.x = element_blank()
   )
 
-# --- 6. EDA Plot 2: Protocol type by class -----------------------------------
 p2 <- df %>%
   count(protocol_type, attack_class) %>%
   group_by(attack_class) %>%
@@ -240,13 +222,12 @@ p2 <- df %>%
     panel.grid.major.x = element_blank()
   )
 
-# --- 7. EDA Plot 3: Key numeric feature distributions by class ---------------
 key_features <- c("duration","src_bytes","dst_bytes","count","serror_rate","same_srv_rate")
 
 df_long <- df %>%
   select(attack_class, all_of(key_features)) %>%
   pivot_longer(-attack_class, names_to = "feature", values_to = "value") %>%
-  mutate(value_log = log1p(value))   # log1p to handle zeros
+  mutate(value_log = log1p(value))
 
 p3 <- ggplot(df_long, aes(x = attack_class, y = value_log, fill = attack_class)) +
   geom_boxplot(outlier.size = 0.3, outlier.alpha = 0.2, show.legend = FALSE) +
@@ -267,7 +248,6 @@ p3 <- ggplot(df_long, aes(x = attack_class, y = value_log, fill = attack_class))
     strip.text  = element_text(face = "bold")
   )
 
-# --- 8. EDA Plot 4: Correlation heatmap (numeric features only) --------------
 numeric_df <- df %>%
   select(where(is.numeric), -matches("land|logged_in|is_host|is_guest")) %>%
   select(-any_of(c("label_raw")))
@@ -285,7 +265,6 @@ p4 <- ggcorrplot(
 ) +
   theme(plot.title = element_text(face = "bold", size = 14))
 
-# --- 9. EDA Plot 5: Top 10 raw attack labels ---------------------------------
 p5 <- df %>%
   count(label_raw, attack_class, sort = TRUE) %>%
   slice_head(n = 15) %>%
@@ -307,7 +286,6 @@ p5 <- df %>%
     panel.grid.major.y = element_blank()
   )
 
-# --- 10. Save all plots -------------------------------------------------------
 message("\nSaving plots to outputs/...")
 
 ggsave("outputs/p1_class_distribution.png", p1, width=8, height=5, dpi=150)
@@ -318,16 +296,14 @@ ggsave("outputs/p5_attack_subtypes.png",    p5, width=8, height=6, dpi=150)
 
 message("All plots saved.")
 
-# --- 11. Export clean labelled data for Phase 2 ------------------------------
 df_clean <- df %>%
-  select(-label, -label_raw) %>%          # drop raw label columns
-  rename(label = attack_class)            # use 5-class label going forward
+  select(-label, -label_raw) %>%
+  rename(label = attack_class)
 
 write_csv(df_clean, "data/kdd_labelled.csv")
 message(sprintf("\nPhase 1 complete. Clean dataset saved: data/kdd_labelled.csv (%s rows)",
                 format(nrow(df_clean), big.mark=",")))
 
-# --- 12. Quick summary table -------------------------------------------------
 cat("\n===== FINAL CLASS SUMMARY =====\n")
 df_clean %>%
   count(label) %>%
@@ -338,3 +314,4 @@ df_clean %>%
   knitr::kable(col.names = c("Class","Count","% of total","Imbalanced?"),
                format = "simple") %>%
   print()
+

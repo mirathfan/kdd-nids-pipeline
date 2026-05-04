@@ -9,9 +9,9 @@ A full end-to-end machine learning pipeline for multi-class network intrusion de
 | Model | Accuracy | Macro F1 | Notes |
 |---|---|---|---|
 | Decision Tree | 99.88% | 0.821 | Interpretable baseline |
-| **Random Forest** | **99.94%** | **0.831** | **Best overall** |
-| XGBoost | 99.91% | 0.821 | + SHAP explainability |
-| LightGBM | 99.92% | 0.828 | Fastest training |
+| **Random Forest** | **99.94%** | **0.832** | **Best overall** |
+| XGBoost | 99.91% | 0.820 | + SHAP explainability |
+| LightGBM | 99.92% | 0.827 | Fastest training |
 
 > U2R class (privilege escalation attacks) is hardest across all models — only 10 test samples, reflecting extreme real-world rarity. All models achieve near-perfect detection on DoS, Normal, and Probe classes.
 
@@ -55,12 +55,13 @@ Phase 1 (R)  →  Phase 2 (R)  →  Phase 3 (R)  →  Phase 4 (Python)
 - **Decision Tree** (rpart): pruned via cross-validation, 105 leaves
 - **Random Forest**: 300 trees, mtry = √20 ≈ 4, trained on stratified 50% sample
 - Evaluation: per-class precision/recall/F1, confusion matrix heatmaps, macro F1
-- Exports `data/baseline_results.rds` for Phase 5 comparison
+- Exports `data/baseline_results.csv` for Python compatibility and `data/baseline_results.rds` for R reuse
 
 ### Phase 4 — Advanced Models (`python/phase4_xgboost.py`)
 - **XGBoost**: 400 trees, depth 6, L1+L2 regularisation, inverse-frequency class weights
 - **LightGBM**: 400 trees, leaf-wise growth, 63 leaves
 - **SHAP explainability**: TreeExplainer on 2,000 test samples — feature importance bar chart + DoS beeswarm plot
+- Loads Phase 3 baseline metrics from `data/baseline_results.csv`
 - Exports all metrics to `data/phase4_results.json`
 
 ---
@@ -69,8 +70,8 @@ Phase 1 (R)  →  Phase 2 (R)  →  Phase 3 (R)  →  Phase 4 (Python)
 
 - **`src_bytes`** is the single most predictive feature across all models (RF importance + SHAP)
 - **DoS attacks** are trivially separable — near-100% F1 across all classifiers
-- **U2R** (user-to-root privilege escalation) is the hardest class — embedded in packet data rather than connection patterns, only 52 training samples even after SMOTE
-- **SMOTE** on R2L improved F1 from 0.86 (DT) to 0.95 (LightGBM) — concrete evidence of its value
+- **U2R** (user-to-root privilege escalation) is the hardest class — only 52 raw records and 10 held-out test samples, so evaluation remains high-variance even after SMOTE-balanced training
+- **R2L** benefits most from minority-class handling, reaching about 0.94 F1 with LightGBM on the held-out test set
 - Random Forest outperforms gradient boosting here, suggesting the feature space is well-suited to bagging after careful feature selection
 
 ---

@@ -1,30 +1,16 @@
-# =============================================================================
-# KDD Cup 1999 - Network Intrusion Detection
-# Phase 3: Baseline Models — Decision Tree & Random Forest
-# Primary language: R
-# Input : data/train_balanced.csv   (from Phase 2)
-#         data/test.csv             (from Phase 2)
-# Outputs: outputs/p8_dt_confusion.png
-#          outputs/p9_rf_confusion.png
-#          outputs/p10_model_comparison.png
-#          data/baseline_results.rds   (metrics for Phase 5 comparison)
-# =============================================================================
-
-# --- 0. Packages -------------------------------------------------------------
 if (!requireNamespace("pacman", quietly = TRUE)) install.packages("pacman")
 pacman::p_load(
-  tidyverse,  # data wrangling + ggplot2
-  caret,      # confusionMatrix, train
-  rpart,      # decision tree
-  rpart.plot, # tree visualisation
-  randomForest, # random forest
-  scales,     # plot formatting
-  knitr       # summary tables
+  tidyverse,
+  caret,
+  rpart,
+  rpart.plot,
+  randomForest,
+  scales,
+  knitr
 )
 
 dir.create("outputs", showWarnings = FALSE)
 
-# --- 1. Load Phase 2 outputs -------------------------------------------------
 message("Loading preprocessed data...")
 train <- read_csv("data/train_balanced.csv", show_col_types = FALSE) %>%
   mutate(label = factor(label, levels = c("Normal","DoS","Probe","R2L","U2R")))
@@ -37,7 +23,6 @@ message(sprintf("Train: %s rows | Test: %s rows | Features: %d",
                 format(nrow(test),  big.mark=","),
                 ncol(train) - 1))
 
-# Helper: extract per-class and macro metrics from caret confusionMatrix
 extract_metrics <- function(cm, model_name) {
   per_class <- cm$byClass %>%
     as.data.frame() %>%
@@ -61,7 +46,6 @@ extract_metrics <- function(cm, model_name) {
   )
 }
 
-# Helper: plot confusion matrix as heatmap
 plot_confusion <- function(cm, title) {
   cm_tbl <- cm$table %>%
     as.data.frame() %>%
@@ -88,9 +72,6 @@ plot_confusion <- function(cm, title) {
     )
 }
 
-# =============================================================================
-# MODEL 1: Decision Tree (rpart)
-# =============================================================================
 message("\n===== MODEL 1: Decision Tree =====")
 
 set.seed(42)
@@ -99,19 +80,17 @@ dt_model <- rpart(
   data    = train,
   method  = "class",
   control = rpart.control(
-    cp       = 0.0001,   # complexity parameter — lower = deeper tree
-    minsplit = 20,       # min samples to attempt a split
-    maxdepth = 15        # cap depth to prevent overfitting
+    cp       = 0.0001,
+    minsplit = 20,
+    maxdepth = 15
   )
 )
 
-# Prune to best CP (lowest xerror)
 best_cp  <- dt_model$cptable[which.min(dt_model$cptable[,"xerror"]), "CP"]
 dt_pruned <- prune(dt_model, cp = best_cp)
 message(sprintf("Decision Tree pruned. Best CP: %.6f | Tree size: %d leaves",
                 best_cp, sum(dt_pruned$frame$var == "<leaf>")))
 
-# Predict on test
 dt_preds <- predict(dt_pruned, newdata = test, type = "class")
 dt_cm    <- confusionMatrix(dt_preds, test$label)
 
@@ -124,12 +103,10 @@ message(sprintf("Macro F1: %.4f", dt_metrics$macro_f1))
 message("\nPer-class metrics:")
 print(dt_metrics$per_class)
 
-# Save confusion matrix plot
 p8 <- plot_confusion(dt_cm, "Decision Tree — confusion matrix")
 ggsave("outputs/p8_dt_confusion.png", p8, width = 7, height = 5.5, dpi = 150)
 message("Saved: outputs/p8_dt_confusion.png")
 
-# Save tree diagram (top 4 levels for readability)
 png("outputs/p8b_dt_tree.png", width = 1400, height = 900, res = 120)
 rpart.plot(dt_pruned, type = 4, extra = 104,
            main = "Decision Tree structure (top levels)",
@@ -138,14 +115,8 @@ rpart.plot(dt_pruned, type = 4, extra = 104,
 dev.off()
 message("Saved: outputs/p8b_dt_tree.png")
 
-
-# =============================================================================
-# MODEL 2: Random Forest
-# =============================================================================
 message("\n===== MODEL 2: Random Forest =====")
 
-# Use a stratified 50% sample to stay within 16GB RAM on Mac
-# 204K rows is more than sufficient for a strong RF — OOB converges by tree 200
 set.seed(42)
 train_rf_idx <- createDataPartition(train$label, p = 0.50, list = FALSE)
 train_rf     <- train[train_rf_idx, ]
@@ -159,9 +130,9 @@ rf_model <- randomForest(
   label ~ .,
   data      = train_rf,
   ntree     = 300,
-  mtry      = floor(sqrt(ncol(train_rf) - 1)),  # sqrt(20) ~ 4
+  mtry      = floor(sqrt(ncol(train_rf) - 1)),
   importance= TRUE,
-  do.trace  = 100   # print OOB error every 100 trees
+  do.trace  = 100
 )
 
 message("\nRandom Forest training complete.")
@@ -169,7 +140,6 @@ print(rf_model)
 
 print(rf_model)
 
-# Predict on test
 rf_preds <- predict(rf_model, newdata = test, type = "class")
 rf_cm    <- confusionMatrix(rf_preds, test$label)
 
@@ -182,17 +152,12 @@ message(sprintf("Macro F1: %.4f", rf_metrics$macro_f1))
 message("\nPer-class metrics:")
 print(rf_metrics$per_class)
 
-# Save confusion matrix plot
 p9 <- plot_confusion(rf_cm, "Random Forest — confusion matrix")
 ggsave("outputs/p9_rf_confusion.png", p9, width = 7, height = 5.5, dpi = 150)
 message("Saved: outputs/p9_rf_confusion.png")
 
-# =============================================================================
-# MODEL COMPARISON PLOT
-# =============================================================================
 message("\n===== GENERATING COMPARISON PLOTS =====")
 
-# Combine per-class F1 for both models
 all_perclass <- bind_rows(dt_metrics$per_class, rf_metrics$per_class) %>%
   mutate(model = factor(model, levels = c("Decision Tree", "Random Forest")))
 
@@ -206,7 +171,8 @@ p10 <- ggplot(all_perclass, aes(x = class, y = F1, fill = model)) +
   scale_y_continuous(limits = c(0, 1.05), labels = label_number(accuracy=0.01)) +
   labs(
     title    = "Per-class F1 score: Decision Tree vs Random Forest",
-    subtitle = "Evaluated on held-out test set (98,802 rows, no SMOTE)",
+    subtitle = sprintf("Evaluated on held-out test set (%s rows, no SMOTE)",
+                       format(nrow(test), big.mark=",")),
     x        = "Attack class", y = "F1 score", fill = NULL
   ) +
   theme_minimal(base_size = 12) +
@@ -220,9 +186,6 @@ p10 <- ggplot(all_perclass, aes(x = class, y = F1, fill = model)) +
 ggsave("outputs/p10_model_comparison.png", p10, width = 9, height = 5.5, dpi = 150)
 message("Saved: outputs/p10_model_comparison.png")
 
-# =============================================================================
-# SUMMARY TABLE
-# =============================================================================
 summary_tbl <- tibble(
   Model    = c("Decision Tree", "Random Forest"),
   Accuracy = c(dt_metrics$accuracy, rf_metrics$accuracy),
@@ -232,12 +195,13 @@ summary_tbl <- tibble(
 ) %>%
   mutate(across(where(is.numeric), ~round(.x, 4)))
 
+# CSV keeps Phase 3 metrics compatible between R and Python.
+write_csv(summary_tbl, "data/baseline_results.csv")
+message("Saved: data/baseline_results.csv")
+
 cat("\n===== PHASE 3 RESULTS SUMMARY =====\n")
 knitr::kable(summary_tbl, format = "simple") %>% print()
 
-# =============================================================================
-# SAVE FOR PHASE 5 COMPARISON
-# =============================================================================
 baseline_results <- list(
   dt = list(
     model      = dt_pruned,
